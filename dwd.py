@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 dwd.py: DigitalWhisper Downloader. Bulk download sheets from digitalwhisper.co.il.
@@ -12,33 +12,42 @@ import requests
 import re
 from bs4 import BeautifulSoup
 
-def getSheets(latest):
-    print(f"Downloading DigitalWhisper 1:{latest}..")
+
+def get_sheets():
+    print(f"Downloading DigitalWhisper sheets..")
+    issue_number = 0
     notFoundCount = 0
-    for i in range(1, latest + 1):
+    newline = ''
+    while True:
+        latest = issue_number - notFoundCount
         if notFoundCount == 3:   # Need to know when to quit..
-            print(f'Assuming latest {notFoundCount} sheets are yet to be published. Halting sheets search..') 
-            return
+            print(f'Assuming latest {notFoundCount} sheets are yet to be published. Halting sheets search.') 
+            return latest
         try:
-            fname = f'DigitalWhisper{i:03}.pdf'
+            issue_number += 1
+            fname = f'DigitalWhisper{issue_number:03}.pdf'
             if os.path.isfile(fname):
-                print(f'{fname} already exists. Skipping..')
+                print(f'\r{fname} already exists. Skipping..', end='')
+                newline = '\n'
                 continue
-            url = f'https://www.digitalwhisper.co.il/files/Zines/0x{i:02X}/DigitalWhisper{i}.pdf'
+            url = f'https://www.digitalwhisper.co.il/files/Zines/0x{issue_number:02X}/DigitalWhisper{issue_number}.pdf'
             r = requests.get(url, allow_redirects=True)
             if r:
                 notFoundCount = 0
                 open(fname, 'wb').write(r.content)
-                print(f'Written {fname}')
+                print(f'\rWritten {fname}.{" "*20}', end='')
+                newline = '\n'
             else:
                 notFoundCount += 1
-                print(f'{fname} Not found. Try searching with WaybackMachine (web-old.archive.org).')
-                
+                print(f'{newline}{fname} Not found. Try WaybackMachine (web.archive.org) if {fname} was published.')
+                newline=''
         except Exception as e:
             print(e)
-    
+            return latest
+  
 
-def getContent():
+def get_content_old():
+    """ digitalwhisper.co.il/Issues is not frequently updated. """
     try:
         fname = 'Content.html'
         r = requests.get('https://www.digitalwhisper.co.il/Issues', allow_redirects=True)
@@ -64,12 +73,46 @@ def getContent():
         print(e)
 
 
-if __name__ == "__main__":
+def get_content_lemma(issue_number):
     try:
-        latest = int(sys.argv[1])
-    except: 
-        latest = 0xFF
-    getSheets(latest)
+        print(f'\rGetting content for issue {issue_number}..', end='')
+        r = requests.get(f'https://www.digitalwhisper.co.il/issue{issue_number}', allow_redirects=False)
+        content = r.text
+        
+        soup = BeautifulSoup(content, 'html.parser')
+        for div in soup.find_all("div", {'class':'navi'}):   # remove navigation panel
+            div.decompose()
+        for div in soup.find_all("img"):   # remove img links
+            div.decompose()
+        
+        start = "<h2><center>הגיליון"
+        content = re.sub(rf'{start}.*', '', str(soup), flags=re.DOTALL).strip()
+        
+        end = "<hr"
+        content = re.sub(rf'{end}.*', '', str(soup), flags=re.DOTALL).strip()
 
-    # sheets summary
-    getContent()
+        return content
+    except Exception as e:
+        print(e)
+        return ''
+
+
+def get_content(latest):
+    """ very slow. consider parrallelizing. """
+    try:
+        fname = 'Content.html'
+        content = ''
+        for issue_number in range(1, latest):
+            content += get_content_lemma(issue_number)
+        with open(fname, "w", encoding='UTF-8') as f:
+            f.write(content)
+            print('')
+            print(f'Written {fname}.') 
+    except Exception as e:
+        print(e)
+
+
+if __name__ == "__main__":
+    latest = get_sheets()
+    #get_content(latest)
+    get_content_old()
